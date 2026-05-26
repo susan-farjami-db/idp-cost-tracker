@@ -1,0 +1,20 @@
+resources:
+  jobs:
+    setup_idp_views:
+      name: "[${bundle.target}] IDP cost tracking — setup views"
+      tasks:
+        - task_key: create_views
+          notebook_task:
+            notebook_path: ../src/setup_views.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              lookback_30d: ${var.lookback_30d}
+              lookback_60d: ${var.lookback_60d}
+              lookback_90d: ${var.lookback_90d}
+          environment_key: serverless
+      environments:
+        - environment_key: serverless
+          spec:
+            client: "2"
+      max_concurrent_runs: 1

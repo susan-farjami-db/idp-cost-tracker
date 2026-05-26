@@ -1,0 +1,46 @@
+bundle:
+  name: idp-cost-tracker
+
+# Customer-facing variables. Override per target below or via --var flags.
+variables:
+  catalog:
+    description: Catalog where the IDP cost tracking schema lives
+    default: main
+  schema:
+    description: Schema for IDP cost tracking views and dashboard
+    default: idp_cost_tracking
+  warehouse_id:
+    description: SQL warehouse ID used by the setup job and dashboard
+  parent_path:
+    description: Workspace path where the dashboard is deployed
+    default: /Shared
+  lookback_30d:
+    description: Default short window (days) for KPIs, by_workspace, by_function, by_workload, top_users, top_workloads
+    default: "30"
+  lookback_60d:
+    description: Default trend window (days) for the daily trend line chart
+    default: "60"
+  lookback_90d:
+    description: Default lookback (days) for the user-filter dropdown
+    default: "90"
+
+include:
+  - resources/*.yml
+
+# Targets are deployment environments. Edit the `_template` block below with
+# your workspace details, OR copy it and rename for each environment / customer.
+# All bundle commands require -t <target>; there is intentionally no default.
+targets:
+  _template:
+    mode: development
+    workspace:
+      host: https://<your-workspace>.cloud.databricks.com
+    variables:
+      catalog: <your-catalog>
+      schema: idp_cost_tracking
+      warehouse_id: <your-warehouse-id>
+      parent_path: /Shared
+      # Optional overrides (defaults: 30 / 60 / 90)
+      # lookback_30d: "30"
+      # lookback_60d: "60"
+      # lookback_90d: "90"

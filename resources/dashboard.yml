@@ -1,0 +1,1188 @@
+resources:
+  dashboards:
+    idp_cost_tracker:
+      display_name: "[${bundle.target}] Intelligent Document Processing (IDP) Cost Tracker"
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.parent_path}
+      embed_credentials: true
+      # Inline JSON (not file_path) so DAB substitutes ${var.X} before
+      # Terraform receives the content. file_path passes content verbatim and
+      # Terraform then chokes on the un-declared ${var.X} references.
+      serialized_dashboard: |
+        {
+          "datasets": [
+            {
+              "name": "ds_user_list",
+              "displayName": "User list for filter",
+              "queryLines": [
+                "SELECT DISTINCT run_as FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_90d} DAYS AND run_as IS NOT NULL ORDER BY run_as"
+              ]
+            },
+            {
+              "name": "ds_kpi_total_30d",
+              "displayName": "KPI total 30d",
+              "queryLines": [
+                "SELECT workspace_id, run_as, SUM(cost_usd) AS total_cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY workspace_id, run_as"
+              ]
+            },
+            {
+              "name": "ds_kpi_parse_30d",
+              "displayName": "KPI parse 30d",
+              "queryLines": [
+                "SELECT workspace_id, run_as, SUM(cost_usd) AS parse_cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS AND ai_function = 'AI_PARSE_DOCUMENT' GROUP BY workspace_id, run_as"
+              ]
+            },
+            {
+              "name": "ds_kpi_extract_30d",
+              "displayName": "KPI extract 30d",
+              "queryLines": [
+                "SELECT workspace_id, run_as, SUM(cost_usd) AS extract_cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS AND ai_function = 'AI_EXTRACT' GROUP BY workspace_id, run_as"
+              ]
+            },
+            {
+              "name": "ds_daily_trend",
+              "displayName": "Daily trend",
+              "queryLines": [
+                "SELECT usage_date, ai_function, workspace_id, run_as, SUM(cost_usd) AS cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_60d} DAYS GROUP BY usage_date, ai_function, workspace_id, run_as ORDER BY usage_date"
+              ]
+            },
+            {
+              "name": "ds_by_workspace",
+              "displayName": "By workspace",
+              "queryLines": [
+                "SELECT workspace_id, run_as, SUM(cost_usd) AS cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY workspace_id, run_as"
+              ]
+            },
+            {
+              "name": "ds_by_function_total",
+              "displayName": "Total by function",
+              "queryLines": [
+                "SELECT ai_function, workspace_id, run_as, SUM(cost_usd) AS cost_usd FROM ${var.catalog}.${var.schema}.v_idp_usage_facts WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY ai_function, workspace_id, run_as"
+              ]
+            },
+            {
+              "name": "ds_workload_type",
+              "displayName": "By workload type",
+              "queryLines": [
+                "SELECT workload_type, ai_function, run_as, SUM(cost_usd) AS cost_usd FROM ${var.catalog}.${var.schema}.v_idp_by_workload WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY workload_type, ai_function, run_as"
+              ]
+            },
+            {
+              "name": "ds_top_workloads",
+              "displayName": "Top workloads 30d",
+              "queryLines": [
+                "SELECT workload_type, workload_id, COALESCE(workload_label, '') AS workload_label, run_as, ai_function, SUM(cost_usd) AS cost_usd, SUM(dbus) AS dbus, SUM(usage_records) AS records FROM ${var.catalog}.${var.schema}.v_idp_by_workload WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY workload_type, workload_id, workload_label, run_as, ai_function ORDER BY cost_usd DESC LIMIT 50"
+              ]
+            },
+            {
+              "name": "ds_top_users",
+              "displayName": "Top users 30d",
+              "queryLines": [
+                "SELECT run_as, ai_function, SUM(cost_usd) AS cost_usd FROM ${var.catalog}.${var.schema}.v_idp_by_user WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS GROUP BY run_as, ai_function ORDER BY cost_usd DESC LIMIT 50"
+              ]
+            },
+            {
+              "name": "ds_warehouse_queries",
+              "displayName": "Warehouse queries 30d",
+              "queryLines": [
+                "SELECT executed_by AS run_as, ai_function_detected, warehouse_id, COUNT(*) AS query_count, SUM(duration_seconds) AS total_seconds FROM ${var.catalog}.${var.schema}.v_idp_warehouse_queries WHERE usage_date >= current_date() - INTERVAL ${var.lookback_30d} DAYS AND execution_status = 'FINISHED' GROUP BY executed_by, ai_function_detected, warehouse_id ORDER BY total_seconds DESC LIMIT 100"
+              ]
+            }
+          ],
+          "pages": [
+            {
+              "name": "page_overview",
+              "displayName": "Cost Overview",
+              "layout": [
+                {
+                  "widget": {
+                    "name": "title_overview",
+                    "multilineTextboxSpec": {
+                      "lines": [
+                        "<h1 style=\"margin: 0 0 4px 0;\">IDP Cost Tracker</h1><div style=\"font-size: 13px; color: #666; font-weight: normal;\">Cost from <code>system.billing.usage</code> (<code>AI_FUNCTIONS</code> product). Last 30 days unless noted \u2014 use the filter to scope by user and/or workspace.</div>"
+                      ]
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 12,
+                    "height": 2
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "user_filter_p1",
+                    "queries": [
+                      {
+                        "name": "dashboards/q_user_list_p1",
+                        "query": {
+                          "datasetName": "ds_user_list",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_kpi_total_p1",
+                        "query": {
+                          "datasetName": "ds_kpi_total_30d",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_kpi_parse_p1",
+                        "query": {
+                          "datasetName": "ds_kpi_parse_30d",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_kpi_extract_p1",
+                        "query": {
+                          "datasetName": "ds_kpi_extract_30d",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_daily_trend_p1",
+                        "query": {
+                          "datasetName": "ds_daily_trend",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_by_workspace_p1",
+                        "query": {
+                          "datasetName": "ds_by_workspace",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_by_function_p1",
+                        "query": {
+                          "datasetName": "ds_by_function_total",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "filter-multi-select",
+                      "encodings": {
+                        "fields": [
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_user_list_p1",
+                            "displayName": "User"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_kpi_total_p1"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_kpi_parse_p1"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_kpi_extract_p1"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_daily_trend_p1"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_by_workspace_p1"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_by_function_p1"
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "Filter by user (multi-select)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 2,
+                    "width": 6,
+                    "height": 1
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "kpi_total",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_kpi_total_30d",
+                          "fields": [
+                            {
+                              "name": "sum(total_cost_usd)",
+                              "expression": "SUM(`total_cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "frame": {
+                        "showTitle": true,
+                        "title": "Total IDP cost (last 30 days)"
+                      },
+                      "widgetType": "counter",
+                      "encodings": {
+                        "value": {
+                          "fieldName": "sum(total_cost_usd)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD",
+                            "abbreviation": "compact",
+                            "decimalPlaces": {
+                              "type": "max",
+                              "places": 2
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 3,
+                    "width": 4,
+                    "height": 3
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "kpi_parse",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_kpi_parse_30d",
+                          "fields": [
+                            {
+                              "name": "sum(parse_cost_usd)",
+                              "expression": "SUM(`parse_cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "frame": {
+                        "showTitle": true,
+                        "title": "ai_parse_document cost (last 30 days)"
+                      },
+                      "widgetType": "counter",
+                      "encodings": {
+                        "value": {
+                          "fieldName": "sum(parse_cost_usd)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD",
+                            "abbreviation": "compact",
+                            "decimalPlaces": {
+                              "type": "max",
+                              "places": 2
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 4,
+                    "y": 3,
+                    "width": 4,
+                    "height": 3
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "kpi_extract",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_kpi_extract_30d",
+                          "fields": [
+                            {
+                              "name": "sum(extract_cost_usd)",
+                              "expression": "SUM(`extract_cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "frame": {
+                        "showTitle": true,
+                        "title": "ai_extract cost (last 30 days)"
+                      },
+                      "widgetType": "counter",
+                      "encodings": {
+                        "value": {
+                          "fieldName": "sum(extract_cost_usd)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD",
+                            "abbreviation": "compact",
+                            "decimalPlaces": {
+                              "type": "max",
+                              "places": 2
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 8,
+                    "y": 3,
+                    "width": 4,
+                    "height": 3
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "trend_by_function",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_daily_trend",
+                          "fields": [
+                            {
+                              "name": "usage_date",
+                              "expression": "`usage_date`"
+                            },
+                            {
+                              "name": "ai_function",
+                              "expression": "`ai_function`"
+                            },
+                            {
+                              "name": "sum(cost_usd)",
+                              "expression": "SUM(`cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 3,
+                      "widgetType": "line",
+                      "encodings": {
+                        "x": {
+                          "fieldName": "usage_date",
+                          "scale": {
+                            "type": "temporal"
+                          },
+                          "displayName": "Date"
+                        },
+                        "y": {
+                          "fieldName": "sum(cost_usd)",
+                          "scale": {
+                            "type": "quantitative"
+                          },
+                          "displayName": "Cost (USD)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD"
+                          }
+                        },
+                        "color": {
+                          "fieldName": "ai_function",
+                          "scale": {
+                            "type": "categorical"
+                          },
+                          "displayName": "AI function"
+                        }
+                      },
+                      "frame": {
+                        "title": "Daily IDP cost by function (60d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 6,
+                    "width": 12,
+                    "height": 5
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "by_function_bar",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_by_function_total",
+                          "fields": [
+                            {
+                              "name": "ai_function",
+                              "expression": "`ai_function`"
+                            },
+                            {
+                              "name": "sum(cost_usd)",
+                              "expression": "SUM(`cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 3,
+                      "widgetType": "bar",
+                      "encodings": {
+                        "x": {
+                          "fieldName": "ai_function",
+                          "scale": {
+                            "type": "categorical"
+                          },
+                          "displayName": "Function"
+                        },
+                        "y": {
+                          "fieldName": "sum(cost_usd)",
+                          "scale": {
+                            "type": "quantitative"
+                          },
+                          "displayName": "Cost (USD)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD"
+                          }
+                        }
+                      },
+                      "frame": {
+                        "title": "Cost by function (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 11,
+                    "width": 6,
+                    "height": 5
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "by_workspace_bar",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_by_workspace",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            },
+                            {
+                              "name": "sum(cost_usd)",
+                              "expression": "SUM(`cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 3,
+                      "widgetType": "bar",
+                      "encodings": {
+                        "x": {
+                          "fieldName": "sum(cost_usd)",
+                          "scale": {
+                            "type": "quantitative"
+                          },
+                          "displayName": "Cost (USD)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD"
+                          }
+                        },
+                        "y": {
+                          "fieldName": "workspace_id",
+                          "scale": {
+                            "type": "categorical"
+                          },
+                          "displayName": "Workspace"
+                        }
+                      },
+                      "frame": {
+                        "title": "Top workspaces (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 6,
+                    "y": 11,
+                    "width": 6,
+                    "height": 5
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "workspace_filter_p1",
+                    "queries": [
+                      {
+                        "name": "dashboards/q_ws_ds_kpi_total_30d",
+                        "query": {
+                          "datasetName": "ds_kpi_total_30d",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_ws_ds_kpi_parse_30d",
+                        "query": {
+                          "datasetName": "ds_kpi_parse_30d",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_ws_ds_kpi_extract_30d",
+                        "query": {
+                          "datasetName": "ds_kpi_extract_30d",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_ws_ds_daily_trend",
+                        "query": {
+                          "datasetName": "ds_daily_trend",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_ws_ds_by_workspace",
+                        "query": {
+                          "datasetName": "ds_by_workspace",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_ws_ds_by_function_total",
+                        "query": {
+                          "datasetName": "ds_by_function_total",
+                          "fields": [
+                            {
+                              "name": "workspace_id",
+                              "expression": "`workspace_id`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "filter-multi-select",
+                      "encodings": {
+                        "fields": [
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_kpi_total_30d"
+                          },
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_kpi_parse_30d"
+                          },
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_kpi_extract_30d"
+                          },
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_daily_trend"
+                          },
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_by_workspace",
+                            "displayName": "Workspace"
+                          },
+                          {
+                            "fieldName": "workspace_id",
+                            "queryName": "dashboards/q_ws_ds_by_function_total"
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "Filter by workspace (multi-select)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 6,
+                    "y": 2,
+                    "width": 6,
+                    "height": 1
+                  }
+                }
+              ],
+              "pageType": "PAGE_TYPE_CANVAS",
+              "layoutVersion": "GRID_V1"
+            },
+            {
+              "name": "page_workload",
+              "displayName": "By Workload",
+              "layout": [
+                {
+                  "widget": {
+                    "name": "title_workload",
+                    "multilineTextboxSpec": {
+                      "lines": [
+                        "<h1 style=\"margin: 0 0 4px 0;\">Per-Workload Attribution</h1><div style=\"font-size: 13px; color: #666; font-weight: normal;\">Cost attributed to the specific Job, Pipeline, Warehouse, or Notebook that issued the AI function call.</div>"
+                      ]
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 6,
+                    "height": 2
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "user_filter_p2",
+                    "queries": [
+                      {
+                        "name": "dashboards/q_user_list_p2",
+                        "query": {
+                          "datasetName": "ds_user_list",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_workload_type_p2",
+                        "query": {
+                          "datasetName": "ds_workload_type",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      },
+                      {
+                        "name": "dashboards/q_top_workloads_p2",
+                        "query": {
+                          "datasetName": "ds_top_workloads",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "filter-multi-select",
+                      "encodings": {
+                        "fields": [
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_user_list_p2",
+                            "displayName": "User"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_workload_type_p2"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "queryName": "dashboards/q_top_workloads_p2"
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "Filter by user (multi-select)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 2,
+                    "width": 6,
+                    "height": 1
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "workload_type_bar",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_workload_type",
+                          "fields": [
+                            {
+                              "name": "workload_type",
+                              "expression": "`workload_type`"
+                            },
+                            {
+                              "name": "ai_function",
+                              "expression": "`ai_function`"
+                            },
+                            {
+                              "name": "sum(cost_usd)",
+                              "expression": "SUM(`cost_usd`)"
+                            }
+                          ],
+                          "disaggregated": false
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 3,
+                      "widgetType": "bar",
+                      "encodings": {
+                        "x": {
+                          "fieldName": "workload_type",
+                          "scale": {
+                            "type": "categorical"
+                          },
+                          "displayName": "Workload type"
+                        },
+                        "y": {
+                          "fieldName": "sum(cost_usd)",
+                          "scale": {
+                            "type": "quantitative"
+                          },
+                          "displayName": "Cost (USD)",
+                          "format": {
+                            "type": "number-currency",
+                            "currencyCode": "USD"
+                          }
+                        },
+                        "color": {
+                          "fieldName": "ai_function",
+                          "scale": {
+                            "type": "categorical"
+                          },
+                          "displayName": "Function"
+                        }
+                      },
+                      "frame": {
+                        "title": "Cost by workload type (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 3,
+                    "width": 6,
+                    "height": 5
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "top_workloads_table",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_top_workloads",
+                          "fields": [
+                            {
+                              "name": "workload_type",
+                              "expression": "`workload_type`"
+                            },
+                            {
+                              "name": "workload_id",
+                              "expression": "`workload_id`"
+                            },
+                            {
+                              "name": "workload_label",
+                              "expression": "`workload_label`"
+                            },
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            },
+                            {
+                              "name": "ai_function",
+                              "expression": "`ai_function`"
+                            },
+                            {
+                              "name": "cost_usd",
+                              "expression": "`cost_usd`"
+                            },
+                            {
+                              "name": "dbus",
+                              "expression": "`dbus`"
+                            },
+                            {
+                              "name": "records",
+                              "expression": "`records`"
+                            }
+                          ],
+                          "disaggregated": true
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "table",
+                      "encodings": {
+                        "columns": [
+                          {
+                            "fieldName": "workload_type",
+                            "displayName": "Type",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "workload_id",
+                            "displayName": "Workload ID",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "workload_label",
+                            "displayName": "Label or path",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "run_as",
+                            "displayName": "Run as",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "ai_function",
+                            "displayName": "Function",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "cost_usd",
+                            "displayName": "Cost USD",
+                            "type": "decimal",
+                            "format": {
+                              "type": "number-currency",
+                              "currencyCode": "USD",
+                              "decimalPlaces": {
+                                "type": "exact",
+                                "places": 2
+                              }
+                            }
+                          },
+                          {
+                            "fieldName": "dbus",
+                            "displayName": "DBUs",
+                            "type": "decimal",
+                            "format": {
+                              "type": "number-plain",
+                              "decimalPlaces": {
+                                "type": "exact",
+                                "places": 2
+                              }
+                            }
+                          },
+                          {
+                            "fieldName": "records",
+                            "displayName": "Records",
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "Top 50 workloads by cost (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 8,
+                    "width": 6,
+                    "height": 8
+                  }
+                }
+              ],
+              "pageType": "PAGE_TYPE_CANVAS"
+            },
+            {
+              "name": "page_users",
+              "displayName": "By User and Query",
+              "layout": [
+                {
+                  "widget": {
+                    "name": "title_users",
+                    "multilineTextboxSpec": {
+                      "lines": [
+                        "<h1 style=\"margin: 0 0 4px 0;\">Per-User and Per-Query Attribution</h1><div style=\"font-size: 13px; color: #666; font-weight: normal;\">Top spenders by user. Warehouse-queries table only covers DBSQL-originated AI calls.</div>"
+                      ]
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 6,
+                    "height": 2
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "top_users_table",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_top_users",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            },
+                            {
+                              "name": "ai_function",
+                              "expression": "`ai_function`"
+                            },
+                            {
+                              "name": "cost_usd",
+                              "expression": "`cost_usd`"
+                            }
+                          ],
+                          "disaggregated": true
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "table",
+                      "encodings": {
+                        "columns": [
+                          {
+                            "fieldName": "run_as",
+                            "displayName": "User (run_as)",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "ai_function",
+                            "displayName": "Function",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "cost_usd",
+                            "displayName": "Cost USD (30d)",
+                            "type": "decimal",
+                            "format": {
+                              "type": "number-currency",
+                              "currencyCode": "USD",
+                              "decimalPlaces": {
+                                "type": "exact",
+                                "places": 2
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "Top 50 users by cost (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 2,
+                    "width": 6,
+                    "height": 6
+                  }
+                },
+                {
+                  "widget": {
+                    "name": "warehouse_queries_table",
+                    "queries": [
+                      {
+                        "name": "main_query",
+                        "query": {
+                          "datasetName": "ds_warehouse_queries",
+                          "fields": [
+                            {
+                              "name": "run_as",
+                              "expression": "`run_as`"
+                            },
+                            {
+                              "name": "ai_function_detected",
+                              "expression": "`ai_function_detected`"
+                            },
+                            {
+                              "name": "warehouse_id",
+                              "expression": "`warehouse_id`"
+                            },
+                            {
+                              "name": "query_count",
+                              "expression": "`query_count`"
+                            },
+                            {
+                              "name": "total_seconds",
+                              "expression": "`total_seconds`"
+                            }
+                          ],
+                          "disaggregated": true
+                        }
+                      }
+                    ],
+                    "spec": {
+                      "version": 2,
+                      "widgetType": "table",
+                      "encodings": {
+                        "columns": [
+                          {
+                            "fieldName": "run_as",
+                            "displayName": "User",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "ai_function_detected",
+                            "displayName": "Function detected",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "warehouse_id",
+                            "displayName": "Warehouse",
+                            "type": "string"
+                          },
+                          {
+                            "fieldName": "query_count",
+                            "displayName": "Queries",
+                            "type": "integer"
+                          },
+                          {
+                            "fieldName": "total_seconds",
+                            "displayName": "Compute seconds",
+                            "type": "decimal",
+                            "format": {
+                              "type": "number-plain",
+                              "decimalPlaces": {
+                                "type": "exact",
+                                "places": 1
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "frame": {
+                        "title": "DBSQL queries invoking AI functions (30d)",
+                        "showTitle": true
+                      }
+                    }
+                  },
+                  "position": {
+                    "x": 0,
+                    "y": 8,
+                    "width": 6,
+                    "height": 7
+                  }
+                }
+              ],
+              "pageType": "PAGE_TYPE_CANVAS"
+            }
+          ]
+        }
